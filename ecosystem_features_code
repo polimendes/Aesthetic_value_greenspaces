@@ -1,0 +1,175 @@
+#Dealing with pictures
+
+library(imagefluency)
+library(jpeg)
+
+#calculating complexity with compression
+pic1<-img_read("C://r_pics//selected_1//76.jpg")
+img_complexity(pic1)
+
+#data
+# library(psych)
+# data<-read.csv("C://r_pics//pics.csv",sep=",")
+# data1<-data[,3:12]
+# corr1<-corr.test(data1)
+# p<-corr.p(corr1$r,n=48)
+# corrs<-corr.test(data,method="spearman")
+# p<-corr.p(corrs$r,n=35)
+
+#Package ImageAnalysis
+install.packages("raster")
+install.packages("rgdal")
+install.packages("devtools")
+library("devtools")
+devtools::install_github("cmartin/LAI")
+devtools::install_github("cmartin/EXIFr")
+devtools::install_bitbucket("persican/imagemetrics", ref="36d34cc")
+library(raster)
+library(imagemetrics)
+
+###################
+m<-matrix(,45,5)
+list=list.files('C://r_pics//selected_1//selected//', pattern=NULL, all.files=FALSE,
+                full.names=FALSE)
+m[,1]=list
+pb <- winProgressBar(title = "progress bar", min = 0,
+                     max = 46, width = 300)
+
+for(i in 1:45) {
+  
+  path<-paste('C://r_pics//selected_1//selected//',list[i],sep="")
+  
+  #path <- "TestImages/0/IMG_5401.jpg"
+  #path <- "C://r_pics//selected_1// 12.jpg"
+  #############################################################################
+  #### STEP 1 : Load or calculate all image layers we need to work with.
+  #############################################################################
+  
+  # Load 3 rasters from the target image,
+  # one for red, one for green and one for the blue channel
+  R <- raster(path, band = 1)
+  G <- raster(path, band = 2)
+  B <- raster(path, band = 3)
+  # Combine the RGB channels to create a grayscale image
+  RGB <- brick(R,G,B)
+  r_grey <- mean(RGB)
+  # Convert RGB bands to HSV channels
+  HSV <- rgb2hsv(getValues(R),getValues(G),getValues(B))
+  r_H <- r_S <- r_V <- raster(ncols = ncol(R), nrows = nrow(R))
+  extent(r_H) <- extent(r_S) <- extent(r_V) <- extent(R)
+  values(r_H) <- HSV[1,]
+  values(r_S) <- HSV[2,]
+  values(r_V) <- HSV[3,]
+  # Create a binary image seperating vegetation from the background
+  # This functions needs the whole 3-color stack
+  r_green <- getBinaryVegetationMask(RGB)
+  #############################################################################
+  #### STEP 2 : Calculate neighbor matrices and histograms on each layer.
+  ####          We will then feed these into the actual analysis functions
+  #############################################################################
+  
+  # On the four channels, find either right (1), diagonal (2) or below (3)
+  # neighbors for histogram calculations
+  v_grey_1 <- getImagePixels(r_grey, side = 1)
+  v_H_1 <- getImagePixels(r_H, side = 1)
+  v_S_1 <- getImagePixels(r_S, side = 1)
+  v_V_1 <- getImagePixels(r_V, side = 1)
+  
+  v_grey_2 <- getImagePixels(r_grey, side = 2)
+  v_H_2 <- getImagePixels(r_H, side = 2)
+  v_S_2 <- getImagePixels(r_S, side = 2)
+  v_V_2 <- getImagePixels(r_V, side = 2)
+  
+  v_grey_3 <- getImagePixels(r_grey, side = 3)
+  v_H_3 <- getImagePixels(r_H, side = 3)
+  v_S_3 <- getImagePixels(r_S, side = 3)
+  v_V_3 <- getImagePixels(r_V, side = 3)
+  # Calculate histograms from neighbor vectors
+  nbins <- 15
+  prob_grey_1 <- calculateHisto(
+    reference_vector = v_grey_1$reference_vector,
+    neighbour_vector = v_grey_1$neighbour_vector,
+    nbins = nbins
+  )
+  prob_H_1 <- calculateHisto(
+    reference_vector = v_H_1$reference_vector,
+    neighbour_vector = v_H_1$neighbour_vector,
+    nbins = nbins
+  )
+  prob_S_1 <- calculateHisto(
+    reference_vector = v_S_1$reference_vector,
+    neighbour_vector = v_S_1$neighbour_vector,
+    nbins = nbins
+  )
+  prob_V_1 <- calculateHisto(
+    reference_vector = v_V_1$reference_vector,
+    neighbour_vector = v_V_1$neighbour_vector,
+    nbins = nbins
+  )
+  
+  prob_grey_2 <- calculateHisto(
+    reference_vector = v_grey_2$reference_vector,
+    neighbour_vector = v_grey_2$neighbour_vector,
+    nbins = nbins
+  )
+  prob_H_2 <- calculateHisto(
+    reference_vector = v_H_2$reference_vector,
+    neighbour_vector = v_H_2$neighbour_vector,
+    nbins = nbins
+  )
+  prob_S_2 <- calculateHisto(
+    reference_vector = v_S_2$reference_vector,
+    neighbour_vector = v_S_2$neighbour_vector,
+    nbins = nbins
+  )
+  prob_V_2 <- calculateHisto(
+    reference_vector = v_V_2$reference_vector,
+    neighbour_vector = v_V_2$neighbour_vector,
+    nbins = nbins
+  )
+  
+  prob_grey_3 <- calculateHisto(
+    reference_vector = v_grey_3$reference_vector,
+    neighbour_vector = v_grey_3$neighbour_vector,
+    nbins = nbins
+  )
+  prob_H_3 <- calculateHisto(
+    reference_vector = v_H_3$reference_vector,
+    neighbour_vector = v_H_3$neighbour_vector,
+    nbins = nbins
+  )
+  prob_S_3 <- calculateHisto(
+    reference_vector = v_S_3$reference_vector,
+    neighbour_vector = v_S_3$neighbour_vector,
+    nbins = nbins
+  )
+  prob_V_3 <- calculateHisto(
+    reference_vector = v_V_3$reference_vector,
+    neighbour_vector = v_V_3$neighbour_vector,
+    nbins = nbins
+  )
+  
+  #############################################################################
+  #### STEP 3 : Calculate the metrics.
+  #############################################################################
+  
+  # Calculate the green index
+  m[i,5]=sum(getValues(r_green)) / length(getValues(r_green))
+  
+  # Calculate mean information gain
+  #meanInformationGain(prob_grey_2)
+  m[i,2]=meanInformationGain(prob_H_2)
+  m[i,3]=meanInformationGain(prob_S_2)
+  m[i,4]=meanInformationGain(prob_V_2)
+  #setWinProgressBar(progression, i, title=paste(round(progress/6000)*100,"% done"))
+  setWinProgressBar(pb, i, title=paste( round(i/46*100, 0),
+                                        "% done"))
+}
+close(pb)
+# Calculate anisotropy
+meanInformationGain(prob_grey_1) / meanInformationGain(prob_grey_3)
+meanInformationGain(prob_H_1) / meanInformationGain(prob_H_3)
+meanInformationGain(prob_S_1) / meanInformationGain(prob_S_3)
+meanInformationGain(prob_V_1) / meanInformationGain(prob_V_3)
+
+write.csv(m,"mig_grenness.csv")
