@@ -1,0 +1,1900 @@
+###Aesthetic Value
+#### Poliana Mendes polimendes@gmail.com
+#### 2023
+rm(list=ls())
+#devtools::install_github("ropensci/plotly")
+library(openxlsx);library(tidyr);library(corrplot);library(nlme);library(dplyr)
+library(car);library(psych);library(ggplot2);library(ggcorrplot);library(vegan)
+library(data.table);library(vtable);library(FD);library(tidyverse);library(ggrepel)
+library(viridis);library(imputeTS);library(lme4);library(lmerTest);library(cowplot)
+library(MuMIn);library(glmmTMB);library(emmeans);library(multipanelfigure)
+library(grid);library(gridExtra);library(ISLR);library(rpart);library(rpart.plot)
+library(REEMtree);library(devtools)
+library(rattle);library(maptree);library(caret);library(moments)
+library(ordinal);library(rcompanion);library(multipanelfigure);library(lmtest)
+library(ggparty);library(spdep);library(ggridges)
+# windowsFonts(A = windowsFont("Courier"))
+library(ggpubr);library(partykit);library(ggparty)
+library(lmtest)
+
+library(emojifont)
+load.fontawesome()
+
+#Load Data
+setwd("C:/Users/polim/OneDrive - Université Laval/Resnet_Landscape2/Projects/aesthetic_value/R/")
+#each line one person
+data_r=read.xlsx("./aesthetic_value_data_3.xlsx", sheet="data_1",rowNames = F, colNames = T)
+data_r[483,]
+#excluding person from norway
+data_r=data_r[-483,]
+#each line one entry of one person
+data=gather(data_r,Photo_ID,Score,P1:P45)
+#each line one picture
+data_c=read.xlsx("./aesthetic_value_data_3.xlsx",sheet="Classification_2")
+# each line one entry with pic data
+data_1=merge(data,data_c,by.x="Photo_ID",by.y="Picture")
+#deleting NAs in the variable Score
+data_2 = data_1[!is.na(data_1$Score),]
+#finding people who did not score any picture
+data_r2<-data_r
+nas<-is.na(data_r2[,which(colnames(data_r2)=="P1"):which(colnames(data_r2)=="P45")])
+data_r2$nnas = rowSums(nas)
+#count the number of respondents who evaluated at least one image
+sum(data_r2$nnas < 45)
+#count the number of respondents who evaluated all images
+sum(data_r2$nnas == 0)
+#deleting people who did not answer all images in the rda
+data_r2<-data_r2 %>% filter(nnas<1)
+# for(i in 32:77){
+#   data_r2[,i][is.na(data_r2[,i])]<-median(data_r2[,i],na.rm=T)
+# }
+data_2$Type<-as.character(data_2$Type)
+
+
+data_2$Type<-relevel(as.factor(data_2$Type),ref='Natural remnant')
+data_2$person<-as.factor(data_2$person)
+
+####### Separating by type
+colnames(data_2)[which(colnames(data_2)=="Human_Features")]<-"Artificial structures"
+colnames(data_2)[which(colnames(data_2)=="Intensity")]<-"Vegetation structural complexity"
+colnames(data_2)[which(colnames(data_2)=="Complexity")]<-"Visual complexity"
+colnames(data_2)[which(colnames(data_2)=="Clutter_NoSky")]<-"Canopy/shrub cover"
+colnames(data_2)[which(colnames(data_2)=="Greenness")]<-"Green pixels"
+v_data<-subset(data_2,data_2$Type=="Vacant lot")
+u_data<-subset(data_2,data_2$Type=="City park")
+n_data<-subset(data_2,data_2$Type=="Natural remnant")
+
+##############STOP###############################################################################################
+#####################Median/Mean/SD###############
+picture_summary<-data_2 %>% group_by(Photo=Photo_ID) %>% summarise(
+  Mean = mean(Score),
+  sd = sd(Score),
+  Type = unique(Type)
+)
+picture_summary
+picture_summary<- picture_summary %>% arrange(Mean)
+picture_summary
+write.csv(picture_summary,file="picture_summary.csv")
+
+data<-picture_summary %>% arrange(desc(Mean)) %>%
+  mutate(Photo=factor(Photo,levels=Photo))
+
+graph<-ggplot(data=data,aes(y=Mean,x=Photo,fill=Type))+geom_bar(position=position_dodge(), stat="identity")+
+  geom_errorbar(aes(ymin=Mean-sd,ymax=Mean+sd))+
+  scale_fill_manual(values=c("darkgreen","blue","red"))+
+  theme(text=element_text(size=16),axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        legend.position="top",
+        legend.title = element_blank())+
+  ylab("Mean of score")
+graph
+
+tiff(filename="pictures_scores.tiff",res=300,width=21,height=5, units="cm")
+graph
+dev.off()
+
+
+#####################CLMM#####################################################################################
+######Do you want to compare the scores given to natural areas, urban parks and vacant lots? Yes-go to next line,
+#transforming Scores in a factor
+data_2$Score = as.factor(data_2$Score)
+
+#crossed random effects TEST TYPE VERSUS SCORE
+global_photo<-clmm(Score ~ Type + (1|Photo_ID),data=data_2,Hess=TRUE,link="logit")
+global_person<-clmm(Score ~ Type + (1|person),data=data_2,Hess=TRUE,link="logit")
+global_dp<-clmm(Score ~ Type + (1|person) + (1|Photo_ID),data=data_2,Hess=TRUE,link="logit")
+anova(global_photo,global_person)
+anova(global_photo,global_dp)
+anova(global_dp,global_person)
+#model only random 
+global_null<-clmm(Score ~ (1|person) + (1|Photo_ID), data=data_2, Hess=T, link="logit")
+anova(global_dp,global_null)
+means<-emmeans(global_dp,pairwise~Type,mode="mean.class");means
+means<-emmeans(global_dp,pairwise~Type,adjust="tukey");means
+nagelkerke(fit=global_dp,null=global_null)
+n_mean_data <- mean(n_data$Score); n_sd_data <- sd(n_data$Score) 
+n_conf_int <- n_mean_data + c(-1.96, 1.96) * n_sd_data/sqrt(length(n_data)) 
+u_mean_data <- mean(u_data$Score); u_sd_data <- sd(u_data$Score) 
+u_conf_int <- u_mean_data + c(-1.96, 1.96) * u_sd_data/sqrt(length(u_data)) 
+v_mean_data <- mean(v_data$Score); v_sd_data <- sd(v_data$Score) 
+v_conf_int <- v_mean_data + c(-1.96, 1.96) * v_sd_data/sqrt(length(v_data)) 
+
+
+violin_1<-ggplot(data_2,aes(x=Type,y=as.numeric(Score)))+
+  geom_violin(aes(fill=Type),trim=F)+
+  scale_color_manual(values = c("black", "#438b81"),"") + theme_minimal()+
+  geom_segment(aes(y=n_conf_int[1],yend=n_conf_int[2],x=1.0,xend=1.0),size=1)+
+  geom_segment(aes(y=u_conf_int[1],yend=u_conf_int[2],x=2.0,xend=2.0),size=1)+
+  geom_segment(aes(y=v_conf_int[1],yend=v_conf_int[2],x=3.0,xend=3.0),size=1)+
+  geom_point(aes(y=n_mean_data,x=1),size=2)+geom_point(aes(y=u_mean_data,x=2),size=2)+
+  geom_point(aes(y=v_mean_data,x=3),size=2)+
+  theme(text=element_text(size=30),axis.text.x = element_blank(),
+        axis.title.x = element_blank(),legend.title = element_blank(),
+        legend.justification=c("left","top"))+
+  scale_fill_manual("",values=c("#52854C","#C4961A","#D16103"))+
+  labs(y="Score",fill="Greenspace type")+ggtitle("Greenspace type")
+violin_1
+
+violin_11<-ggplot(data_2,aes(x=Type,y=as.numeric(Score)))+
+  geom_violin(aes(fill=Type),trim=F)+
+  scale_color_manual(values = c("black", "#438b81"),"") + theme_minimal()+
+  geom_segment(aes(y=n_conf_int[1],yend=n_conf_int[2],x=1.0,xend=1.0),size=1)+
+  geom_segment(aes(y=u_conf_int[1],yend=u_conf_int[2],x=2.0,xend=2.0),size=1)+
+  geom_segment(aes(y=v_conf_int[1],yend=v_conf_int[2],x=3.0,xend=3.0),size=1)+
+  geom_point(aes(y=n_mean_data,x=1),size=2)+geom_point(aes(y=u_mean_data,x=2),size=2)+
+  geom_point(aes(y=v_mean_data,x=3),size=2)+
+  theme(text=element_text(size=30),axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        legend.position = "none",
+        axis.title.y=element_text(size=30))+
+  scale_fill_manual("",values=c("#52854C","#C4961A","#D16103"))+
+  labs(y="Score",fill="Greenspace type")+ggtitle("Greenspace type")+
+  # geom_text(x=1,y=5,label="a",size=4,color="black")+
+  # geom_text(x=2,y=5,label="ab",size=4,color="black")+
+  # geom_text(x=3,y=5,label="b",size=4,color="black")
+ ylim(0.5,5.7)
+legend_1<-cowplot::get_legend(violin_1)
+violin_11
+
+
+n_data$Score = as.factor(n_data$Score)
+#model with person and picture
+global_n_person<-clmm(Score ~ Ecosystem + (1|person), data= n_data, Hess=T,link="logit")
+global_n_photo<-clmm(Score ~ Ecosystem + (1|Photo_ID), data= n_data, Hess=T,link="logit")
+global_n_dp<-clmm(Score ~ Ecosystem + (1|person) + (1|Photo_ID), data= n_data, Hess=T,link="logit")
+anova(global_n_person,global_n_dp)
+anova(global_n_photo,global_n_dp)
+anova(global_n_person,global_n_photo)
+summary(global_n_dp)
+#model only random 
+global_n_null<-clmm(Score ~ 1 + (1|person) + (1|Photo_ID), data=n_data, Hess=T, link="logit")
+anova(global_n_dp,global_n_null)
+means<-emmeans(global_n_dp,pairwise~Ecosystem,mode="mean.class");means
+means<-emmeans(global_n_dp,pairwise~Ecosystem,adjust="tukey");means
+nagelkerke(fit=global_n_dp,null=global_n_null)
+f_data<-subset(n_data,n_data$Ecosystem=="Forest")
+p_data<-subset(n_data,n_data$Ecosystem=="Peatland")
+m_data<-subset(n_data,n_data$Ecosystem=="Marsh")
+f_mean_data <- mean(as.numeric(f_data$Score)); f_sd_data <- sd(as.numeric(f_data$Score)) 
+f_conf_int <- f_mean_data + c(-1.96, 1.96) * f_sd_data/sqrt(length(f_data)) 
+p_mean_data <- mean(as.numeric(p_data$Score)); p_sd_data <- sd(as.numeric(p_data$Score)) 
+p_conf_int <- p_mean_data + c(-1.96, 1.96) * p_sd_data/sqrt(length(p_data)) 
+m_mean_data <- mean(as.numeric(m_data$Score)); m_sd_data <- sd(as.numeric(m_data$Score)) 
+m_conf_int <- m_mean_data + c(-1.96, 1.96) * m_sd_data/sqrt(length(m_data)) 
+
+
+
+violin_2<-ggplot(n_data,aes(x=Ecosystem,y=as.numeric(Score)))+
+  geom_violin(aes(fill=Ecosystem),trim=F)+
+  scale_color_manual(values = c("black", "#438b81"),"") + theme_minimal()+
+  geom_segment(aes(y=f_conf_int[1],yend=f_conf_int[2],x=1.0,xend=1.0),size=1.5)+
+  geom_segment(aes(y=m_conf_int[1],yend=m_conf_int[2],x=2.0,xend=2.0),size=1.5)+
+  geom_segment(aes(y=p_conf_int[1],yend=p_conf_int[2],x=3.0,xend=3.0),size=1.5)+
+  geom_point(aes(y=f_mean_data,x=1),size=4)+geom_point(aes(y=m_mean_data,x=2),size=4)+
+  geom_point(aes(y=p_mean_data,x=3),size=4)+
+  theme(text=element_text(size=30),axis.text.x = element_blank(),
+        axis.title.x = element_blank(),legend.title = element_blank(),
+        legend.justification=c("left","top"),
+        legend.text = element_text(size=30))+
+  scale_fill_manual("",values=c("#C3D7A4","#4E84C4","#FFDB6D"))+
+  ylab("Score")+ggtitle("Natural remnants")
+legend_2<-cowplot::get_legend(violin_2)
+violin_2
+
+violin_22<-ggplot(n_data,aes(x=Ecosystem,y=as.numeric(Score)))+
+  geom_violin(aes(fill=Ecosystem),trim=F)+
+  scale_color_manual(values = c("black", "#438b81"),"") + theme_minimal()+
+  geom_segment(aes(y=f_conf_int[1],yend=f_conf_int[2],x=1.0,xend=1.0),size=1)+
+  geom_segment(aes(y=m_conf_int[1],yend=m_conf_int[2],x=2.0,xend=2.0),size=1)+
+  geom_segment(aes(y=p_conf_int[1],yend=p_conf_int[2],x=3.0,xend=3.0),size=1)+
+  geom_point(aes(y=f_mean_data,x=1),size=2)+geom_point(aes(y=m_mean_data,x=2),size=2)+
+  geom_point(aes(y=p_mean_data,x=3),size=2)+
+  theme(text=element_text(size=30),axis.text.x = element_blank(),
+        axis.title.x = element_blank(),title=element_text(size=30),
+        legend.position="none")+
+  #geom_text(x=0.1,y=5.6,label="B")+
+  # geom_text(x=1,y=5.7,label="a",size=4)+
+  # geom_text(x=2,y=5.7,label="ab",size=4)+
+  # geom_text(x=3,y=5.7,label="b",size=4)+
+  scale_fill_manual("",values=c("#C3D7A4","#4E84C4","#FFDB6D"))+
+  ylab("")+ggtitle("Natural remnants")+
+  ylim(0.5,5.7)
+violin_22
+
+tiff(filename="JANUARYFig3_v4.tiff",res=300,width = 12, height=10,units="cm")
+figure2<-multi_panel_figure(columns=2,rows=7,row_spacing=0.001, panel_label_type = "none")
+figure2%<>%
+  fill_panel(violin_11,column = 1,row=1:5)%<>%
+  fill_panel(violin_22,column = 2,row=1:5)%<>%
+  fill_panel(legend_1,column = 1,row=6)%<>%
+  fill_panel(legend_2,column = 2, row=6)
+figure2
+dev.off()
+
+
+#######################################REEMTREE###################################################################################
+########################################################################################################################
+# Summary tables
+n_data$Score=as.numeric(n_data$Score);n_sum <- describe(n_data)
+u_data$Score=as.numeric(u_data$Score);u_sum <- describe(u_data)
+v_data$Score=as.numeric(v_data$Score);v_sum <- describe(v_data)
+
+#### Only natural areas
+data_natural <- n_data%>%select(Score,Type,"Visual complexity","Artificial structures",
+                                "Canopy/shrub cover","Vegetation structural complexity","Green pixels",person,
+                                Photo_ID,Ecosystem)
+### model
+
+set.seed(123)
+id_rd<-runif(nrow(data_natural))
+data_natural_r<-data_natural[order(id_rd),]
+data_natural_r$Ecosystem <-as.factor(data_natural_r$Ecosystem)
+data_natural_r$`Artificial structures`<-as.numeric(data_natural_r$`Artificial structures`)
+data_natural_r$`Artificial structures`<-ifelse(data_natural_r$`Artificial structures`,"Yes","No")
+data_natural_r$interaction <- interaction(data_natural_r$Photo_ID,data_natural_r$person)
+data_natural_r$dummy<- 1
+
+naturaltree_person<-REEMtree(Score ~  Ecosystem + `Visual complexity` +
+                               `Vegetation structural complexity`+
+                               `Artificial structures` +  `Green pixels` +
+                               `Canopy/shrub cover`, data= data_natural_r,
+                             random=~1|person,cv=T)
+naturaltree_photo<-REEMtree(Score ~ Ecosystem + `Visual complexity` +
+                              `Vegetation structural complexity`+
+                              `Artificial structures` +  `Green pixels` +
+                              `Canopy/shrub cover`, data= data_natural_r,
+                            random=~1|Photo_ID,cv=T)
+# naturaltree_full<-REEMtree(Score ~ Ecosystem + `Visual complexity` +
+#                              `Vegetation structural complexity`+
+#                               `Artificial structures` +  `Green pixels` +
+#                              `Canopy/shrub cover`, data= data_natural_r,
+#                            random=~1|interaction,cv=T)
+naturaltree_full<-REEMtree(Score ~ Ecosystem + `Visual complexity` +
+                             `Vegetation structural complexity`+
+                             `Artificial structures` +  `Green pixels` +
+                             `Canopy/shrub cover`, data= data_natural_r,
+                           random=list(~1|Photo_ID,~1|person),cv=T)
+
+
+#best cp
+best_full <- tree(naturaltree_full)$cptable[which.min(tree(naturaltree_full)$cptable[,"xerror"]),"CP"]
+best_photo <- tree(naturaltree_photo)$cptable[which.min(tree(naturaltree_photo)$cptable[,"xerror"]),"CP"]
+best_person <- tree(naturaltree_person)$cptable[which.min(tree(naturaltree_person)$cptable[,"xerror"]),"CP"]
+
+#comparing three models
+lrtest(naturaltree_full,naturaltree_person)
+lrtest(naturaltree_full,naturaltree_photo)
+lrtest(naturaltree_person,naturaltree_photo)
+
+#AIC three models
+AIC(naturaltree_person)
+AIC(naturaltree_photo)
+AIC(naturaltree_full)
+
+#Plot all three models
+
+rpart.plot(prune(tree(naturaltree_person),cp=best_person),type=5)
+rpart.plot(prune(tree(naturaltree_photo),cp=best_photo),type=5)
+rpart.plot(prune(tree(naturaltree_full),cp=best_full),type=5)
+
+#### model with only person is the best
+print(naturaltree_full)
+plotcp(tree(naturaltree_full))
+printcp(tree(naturaltree_full))
+
+# Create a variable importance plot
+var_importance <- vip::vip(tree(naturaltree_full), num_features = 10)
+print(var_importance)
+
+ pruned_tree2 <- prune(tree(naturaltree_person), cp=best_person)
+ par(mfrow=c(1,1))
+ tree<-rpart.plot(pruned_tree2,type=5,extra=1,box.palette = 0,
+                  main="Natural",shadow.col="gray",tweak=1,roundint=F,
+                  cex=1,fam.main="A", yesno = 2,clip.facs=T)
+
+#https://quantdev.ssri.psu.edu/tutorials/apa-ati-intensive-longitudinal-data-session-t-random-effect-tree-models#:~:text=Random%20effects%20regression%20trees%20have,categorical%2C%20interval%2C%20or%20continuous.
+
+#cross-validation
+tr.control=trainControl(method="cv",number=10,savePredictions = "final",p=0.8)
+set.seed(1234)
+
+#cross-validation
+data_natural_r<-data_natural[order(id_rd),]
+data_natural_r$ID=seq.int(nrow(data_natural_r))
+id_number=as.numeric(dimnames(table(data_natural_r$ID))[[1]])
+folds <- createFolds(y=id_number,k=10)
+cross_val = matrix(NA,nrow=10,ncol=7)
+colnames(cross_val)=c("fold","RMSE_full","r2full","RMSEphoto","r2photo","RMSEperson","r2person")
+for(m in 1:10){
+  train_natural<-data_natural_r[!(data_natural_r$ID %in% id_number[folds[[m]]]),]
+  test_natural<-data_natural_r[data_natural_r$ID %in% id_number[folds[[m]]],]
+  set.seed(1267)
+  reemtree_train_full<-REEMtree(Score ~ Ecosystem + `Vegetation structural complexity`+
+                                  `Visual complexity` +
+                                  `Artificial structures` +  `Green pixels` +
+                                  `Canopy/shrub cover`, data= train_natural,
+                                random=list(~1|person,~1|Photo_ID))
+  reemtree_train_photo<-REEMtree(Score ~ Ecosystem + `Vegetation structural complexity`+
+                                   `Visual complexity` +
+                                   `Artificial structures` +  `Green pixels` +
+                                   `Canopy/shrub cover`, data= train_natural,
+                                 random=~1|Photo_ID)
+  reemtree_train_person<-REEMtree(Score ~ Ecosystem + `Vegetation structural complexity`+
+                                    `Visual complexity` +
+                                    `Artificial structures` +  `Green pixels` +
+                                    `Canopy/shrub cover`, data= train_natural,
+                                  random=~1|person)
+  predict_full <- predict.REEMtree(reemtree_train_full,test_natural,
+                                   id=test_natural$ID,EstimateRandomEffects = F)
+  predict_photo <- predict.REEMtree(reemtree_train_photo,test_natural,
+                                    id=test_natural$ID,EstimateRandomEffects = F)
+  predict_person <- predict.REEMtree(reemtree_train_person,test_natural,
+                                     id=test_natural$ID,EstimateRandomEffects = F)
+  ni=length(test_natural$Score)
+  RMSE_full = sqrt(sum((test_natural$Score-predict_full)^2)/ni)
+  RMSE_photo = sqrt(sum((test_natural$Score-predict_photo)^2)/ni)
+  RMSE_person = sqrt(sum((test_natural$Score-predict_person)^2)/ni)
+  R2_full <- 1 - sum((predict_full - test_natural$Score)^2) / sum((mean(test_natural$Score) - test_natural$Score)^2)
+  R2_photo <- 1 - sum((predict_photo - test_natural$Score)^2) / sum((mean(test_natural$Score) - test_natural$Score)^2)
+  R2_person <- 1 - sum((predict_person - test_natural$Score)^2) / sum((mean(test_natural$Score) - test_natural$Score)^2)
+  cross_val[m,1]=m;cross_val[m,2]=RMSE_full;cross_val[m,3]=R2_full
+  cross_val[m,4]=RMSE_photo;cross_val[m,5]=R2_photo
+  cross_val[m,6]=RMSE_person;cross_val[m,7]=R2_person
+}
+colMeans(cross_val)
+
+######## Plotting with R Party
+library(emojifont)
+load.fontawesome()
+
+py2_n<-as.party(tree(naturaltree_person))
+
+source_url("https://raw.githubusercontent.com/martin-borkovec/ggparty/martin/R/add_splitvar_breaks_index_new.R")
+rounded_labels_n <- add_splitvar_breaks_index_new(party_object = py2_n,
+                                                  plot_data = ggparty:::get_plot_data(py2_n), 
+                                                  round_digits = 2)
+
+ggtree_n<-ggparty(py2_n,add_vars = list(AdjustedTarget = function(data, node) round(mean(node$data$AdjustedTarget), 2)))+ 
+  geom_edge()+
+  geom_edge_label(mapping=aes(label=unlist(rounded_labels_u)),size=12)+
+  geom_node_label(aes(label=splitvar),ids='inner',size=14)+
+  geom_node_plot(gglist = list(geom_boxplot(outlier.size=0.5,aes(x = '', y = AdjustedTarget,fill=factor(id))),
+                               scale_fill_brewer(palette="BrBG"),
+                               theme_classic(), ylab(""),
+                               theme(panel.background = element_rect(fill="transparent"),
+                                     plot.background = element_rect(fill="transparent",color=NA),
+                                     axis.text.x = element_blank(),
+                                     axis.title.x = element_blank(),
+                                     axis.ticks.x = element_blank(),
+                                     axis.text.y = element_text(size=24)),
+                               theme(legend.position = "none",),
+                               scale_y_continuous(breaks=c(1,3,5))),
+                 shared_legend = FALSE)+
+  geom_node_label(aes(label = AdjustedTarget),
+                  fontface = "bold",
+                  ids = "terminal",
+                  size = 14,
+                  nudge_y = 0.01)+
+    ggtitle("Natural remnant")+
+  theme(plot.title=element_text(hjust=0.5,vjust=0.7,size=70,face="bold"))+
+  annotate("text",label="Mean score",fontface="bold",x=0.01,y=0.40,size=14)+
+  annotate("text",label="Predicted score",x=0.01,y=0.16,angle=90,size=14)
+
+ggtree_n
+
+####URBAN PARKS###########
+
+data_urban <- u_data%>%select(Score,Type,"Visual complexity","Artificial structures",
+                              "Canopy/shrub cover","Vegetation structural complexity","Green pixels",person,
+                              Photo_ID)
+### model
+
+set.seed(1234)
+id_rd<-runif(nrow(data_urban))
+data_urban_r<-data_urban[order(id_rd),]
+data_urban_r$`Artificial structures`<-as.numeric(data_urban_r$`Artificial structures`)
+data_urban_r$`Artificial structures`<-ifelse(data_urban_r$`Artificial structures`,"Yes","No")
+
+urbantree_person<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                             `Visual complexity` +
+                             `Green pixels` +
+                             `Canopy/shrub cover`, data= data_urban_r,
+                           random=~1|person,cv=T)
+urbantree_photo<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                            `Visual complexity` +
+                            `Green pixels` +
+                            `Canopy/shrub cover`, data= data_urban_r,
+                          random=~1|Photo_ID,cv=T)
+urbantree_full<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                           `Visual complexity` +
+                           `Green pixels` +
+                           `Canopy/shrub cover`, data= data_urban_r,
+                         random=list(~1|person,~1|Photo_ID),cv=T)
+#comparing three models
+lrtest(urbantree_full,urbantree_person)
+lrtest(urbantree_full,urbantree_photo)
+lrtest(urbantree_person,urbantree_photo)
+#AIC three models
+AIC(urbantree_person)
+AIC(urbantree_photo)
+AIC(urbantree_full)
+#best cp
+best_full <- tree(urbantree_full)$cptable[which.min(tree(urbantree_full)$cptable[,"xerror"]),"CP"]
+best_photo <- tree(urbantree_photo)$cptable[which.min(tree(urbantree_photo)$cptable[,"xerror"]),"CP"]
+best_person <- tree(urbantree_person)$cptable[which.min(tree(urbantree_person)$cptable[,"xerror"]),"CP"]
+
+#### model with only person is the best
+print(urbantree_full)
+AutoCorrelationLRtest(urbantree_full)
+
+plotcp(tree(urbantree_full))
+printcp(tree(urbantree_full))
+
+# Create a variable importance plot
+var_importance <- vip::vip(tree(urbantree_full), num_features = 10)
+print(var_importance)
+
+pruned_tree2 <- prune(tree(urbantree_person), cp=best_person)
+par(mfrow=c(1,1))
+tree<-rpart.plot(pruned_tree2,type=5,extra=1,box.palette = 0,
+                 main="Urban",shadow.col="gray",tweak=1,roundint=F,
+                 cex=1,fam.main="A", yesno = 2,clip.facs=T)
+
+#https://quantdev.ssri.psu.edu/tutorials/apa-ati-intensive-longitudinal-data-session-t-random-effect-tree-models#:~:text=Random%20effects%20regression%20trees%20have,categorical%2C%20interval%2C%20or%20continuous.
+
+#cross-validation
+tr.control=trainControl(method="cv",number=10,savePredictions = "final",p=0.8)
+set.seed(1234)
+
+#cross-validation
+data_urban_r<-data_urban[order(id_rd),]
+data_urban_r$ID=seq.int(nrow(data_urban_r))
+id_number=as.numeric(dimnames(table(data_urban_r$ID))[[1]])
+folds <- createFolds(y=id_number,k=10)
+cross_val = matrix(NA,nrow=10,ncol=7)
+colnames(cross_val)=c("fold","RMSE_full","r2full","RMSEphoto","r2photo","RMSEperson","r2person")
+for(m in 1:10){
+  train_urban<-data_urban_r[!(data_urban_r$ID %in% id_number[folds[[m]]]),]
+  test_urban<-data_urban_r[data_urban_r$ID %in% id_number[folds[[m]]],]
+  set.seed(1267)
+  reemtree_train_full<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                                  `Visual complexity` +
+                                  `Green pixels` +
+                                  `Canopy/shrub cover`, data= train_urban,
+                                random=c(~1|person,~1|Photo_ID))
+  reemtree_train_photo<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                                   `Visual complexity` +
+                                   `Green pixels` +
+                                   `Canopy/shrub cover`, data= train_urban,
+                                 random=~1|Photo_ID)
+  reemtree_train_person<-REEMtree(Score ~ `Artificial structures`+`Vegetation structural complexity`+
+                                    `Visual complexity` +
+                                    `Green pixels` +
+                                    `Canopy/shrub cover`, data= train_urban,
+                                  random=~1|person)
+  predict_full <- predict.REEMtree(reemtree_train_full,test_urban,
+                                   id=test_urban$ID,EstimateRandomEffects = F)
+  predict_photo <- predict.REEMtree(reemtree_train_photo,test_urban,
+                                    id=test_urban$ID,EstimateRandomEffects = F)
+  predict_person <- predict.REEMtree(reemtree_train_person,test_urban,
+                                     id=test_urban$ID,EstimateRandomEffects = F)
+  ni=length(test_urban$Score)
+  RMSE_full = sqrt(sum((test_urban$Score-predict_full)^2)/ni)
+  RMSE_photo = sqrt(sum((test_urban$Score-predict_photo)^2)/ni)
+  RMSE_person = sqrt(sum((test_urban$Score-predict_person)^2)/ni)
+  R2_full <- 1 - sum((predict_full - test_urban$Score)^2) / sum((mean(test_urban$Score) - test_urban$Score)^2)
+  R2_photo <- 1 - sum((predict_photo - test_urban$Score)^2) / sum((mean(test_urban$Score) - test_urban$Score)^2)
+  R2_person <- 1 - sum((predict_person - test_urban$Score)^2) / sum((mean(test_urban$Score) - test_urban$Score)^2)
+  cross_val[m,1]=m;cross_val[m,2]=RMSE_full;cross_val[m,3]=R2_full
+  cross_val[m,4]=RMSE_photo;cross_val[m,5]=R2_photo
+  cross_val[m,6]=RMSE_person;cross_val[m,7]=R2_person
+}
+colMeans(cross_val)
+
+######## Plotting with R Party
+
+py2_u<-as.party(tree(urbantree_person))
+
+source_url("https://raw.githubusercontent.com/martin-borkovec/ggparty/martin/R/add_splitvar_breaks_index_new.R")
+rounded_labels_u <- add_splitvar_breaks_index_new(party_object = py2_u,
+                                                  plot_data = ggparty:::get_plot_data(py2_u), 
+                                                  round_digits = 2)
+ggtree_u<-ggparty(py2_u,add_vars = list(AdjustedTarget = function(data, node) round(mean(node$data$AdjustedTarget), 2)))+ 
+  geom_edge()+
+  geom_edge_label(mapping=aes(label=unlist(rounded_labels_u)),size=12)+
+  geom_node_label(aes(label=splitvar),ids='inner',size=14)+
+  geom_node_plot(gglist = list(geom_boxplot(outlier.size=0.5,aes(x = '', y = AdjustedTarget,fill=factor(id))),
+                               scale_fill_brewer(palette="BrBG"),
+                               theme_classic(), ylab(""),
+                               theme(panel.background = element_rect(fill="transparent"),
+                                     plot.background = element_rect(fill="transparent",color=NA),
+                                     axis.text.x = element_blank(),
+                                     axis.title.x = element_blank(),
+                                     axis.ticks.x = element_blank(),
+                                     axis.text.y = element_text(size=24)),
+                               theme(legend.position = "none",),
+                               scale_y_continuous(breaks=c(1,3,5))),
+                 shared_legend = FALSE)+
+  geom_node_label(aes(label = AdjustedTarget),
+                  fontface = "bold",
+                  ids = "terminal",
+                  size = 14,
+                  nudge_y = 0.01)+
+  ggtitle("City park")+
+  theme(plot.title=element_text(hjust=0.5,vjust=0.7,size=30,face="bold"))+
+  annotate("text",label="Mean score",fontface="bold",x=0.01,y=0.40,size=8)+
+  annotate("text",label="Predicted score",x=0.01,y=0.16,angle=90,size=14)
+ggtree_u
+
+######################VACANT LOTS ###############
+
+data_vacant <- v_data%>%select(Score,Type,"Visual complexity","Artificial structures",
+                               "Canopy/shrub cover","Vegetation structural complexity","Green pixels",person,
+                               Photo_ID,Ecosystem)
+### model
+
+set.seed(123)
+id_rd<-runif(nrow(data_vacant))
+data_vacant_r<-data_vacant[order(id_rd),]
+data_vacant_r$`Artificial structures`<-as.numeric(data_vacant_r$`Artificial structures`)
+data_vacant_r$`Artificial structures`<-ifelse(data_vacant_r$`Artificial structures`,"Yes","No")
+
+vacanttree_person<-REEMtree(Score ~ `Visual complexity` + `Vegetation structural complexity`+
+                                `Artificial structures` +`Green pixels` +
+                              `Canopy/shrub cover`, data= data_vacant_r,
+                            random=~1|person,cv=T)
+vacanttree_photo<-REEMtree(Score ~ `Vegetation structural complexity`+
+                             `Visual complexity` + 
+                             `Artificial structures` +`Green pixels` +
+                             `Canopy/shrub cover`, data= data_vacant_r,
+                           random=~1|Photo_ID,cv=T)
+vacanttree_full<-REEMtree(Score ~ `Vegetation structural complexity`+
+                            `Visual complexity` + 
+                            `Artificial structures` +`Green pixels` +
+                            `Canopy/shrub cover`, data= data_vacant_r,
+                          random=list(~1|person,~1|Photo_ID),cv=T)
+#comparing three models
+lrtest(vacanttree_full,vacanttree_person)
+lrtest(vacanttree_full,vacanttree_photo)
+lrtest(vacanttree_person,vacanttree_photo)
+#AIC three models
+AIC(vacanttree_person)
+AIC(vacanttree_photo)
+AIC(vacanttree_full)
+#best cp
+best_full <- tree(vacanttree_full)$cptable[which.min(tree(vacanttree_full)$cptable[,"xerror"]),"CP"]
+best_photo <- tree(vacanttree_photo)$cptable[which.min(tree(vacanttree_photo)$cptable[,"xerror"]),"CP"]
+best_person <- tree(vacanttree_person)$cptable[which.min(tree(vacanttree_person)$cptable[,"xerror"]),"CP"]
+
+#### model with only person is the best
+print(vacanttree_person)
+AutoCorrelationLRtest(vacanttree_person)
+
+plotcp(tree(vacanttree_person))
+printcp(tree(vacanttree_person))
+
+var_importance<- vip::vip(tree(vacanttree_person), num_features = 10)
+print(var_importance)
+
+pruned_tree2 <- prune(tree(vacanttree_person), cp=best_person)
+
+tree<-rpart.plot(pruned_tree2,type=5,extra=1,box.palette = 0,
+                 main="vacant",shadow.col="gray",tweak=1,roundint=F,
+                 cex=1, yesno = 2,clip.facs=T)
+
+
+#https://quantdev.ssri.psu.edu/tutorials/apa-ati-intensive-longitudinal-data-session-t-random-effect-tree-models#:~:text=Random%20effects%20regression%20trees%20have,categorical%2C%20interval%2C%20or%20continuous.
+
+#cross-validation
+tr.control=trainControl(method="cv",number=10,savePredictions = "final",p=0.8)
+set.seed(1234)
+
+#cross-validation
+data_vacant_r<-data_vacant[order(id_rd),]
+data_vacant_r$ID=seq.int(nrow(data_vacant_r))
+id_number=as.numeric(dimnames(table(data_vacant_r$ID))[[1]])
+folds <- createFolds(y=id_number,k=10)
+cross_val = matrix(NA,nrow=10,ncol=7)
+colnames(cross_val)=c("fold","RMSE_full","r2full","RMSEphoto","r2photo","RMSEperson","r2person")
+for(m in 1:10){
+  train_vacant<-data_vacant_r[!(data_vacant_r$ID %in% id_number[folds[[m]]]),]
+  test_vacant<-data_vacant_r[data_vacant_r$ID %in% id_number[folds[[m]]],]
+  set.seed(1267)
+  reemtree_train_full<-REEMtree(Score ~ `Vegetation structural complexity`+
+                                  `Visual complexity` + 
+                                  `Artificial structures` +`Green pixels` +
+                                  `Canopy/shrub cover`, data= train_vacant,
+                                random=c(~1|person,~1|Photo_ID))
+  reemtree_train_photo<-REEMtree(Score ~ `Vegetation structural complexity`+
+                                   `Visual complexity` + 
+                                   `Artificial structures` +`Green pixels` +
+                                   `Canopy/shrub cover`, data= train_vacant,
+                                 random=~1|Photo_ID)
+  reemtree_train_person<-REEMtree(Score ~ `Vegetation structural complexity`+
+                                    `Visual complexity` + 
+                                    `Artificial structures` +`Green pixels` +
+                                    `Canopy/shrub cover`, data= train_vacant,
+                                  random=~1|person)
+  predict_full <- predict.REEMtree(reemtree_train_full,test_vacant,
+                                   id=test_vacant$ID,EstimateRandomEffects = F)
+  predict_photo <- predict.REEMtree(reemtree_train_photo,test_vacant,
+                                    id=test_vacant$ID,EstimateRandomEffects = F)
+  predict_person <- predict.REEMtree(reemtree_train_person,test_vacant,
+                                     id=test_vacant$ID,EstimateRandomEffects = F)
+  ni=length(test_vacant$Score)
+  RMSE_full = sqrt(sum((test_vacant$Score-predict_full)^2)/ni)
+  RMSE_photo = sqrt(sum((test_vacant$Score-predict_photo)^2)/ni)
+  RMSE_person = sqrt(sum((test_vacant$Score-predict_person)^2)/ni)
+  R2_full <- 1 - sum((predict_full - test_vacant$Score)^2) / sum((mean(test_vacant$Score) - test_vacant$Score)^2)
+  R2_photo <- 1 - sum((predict_photo - test_vacant$Score)^2) / sum((mean(test_vacant$Score) - test_vacant$Score)^2)
+  R2_person <- 1 - sum((predict_person - test_vacant$Score)^2) / sum((mean(test_vacant$Score) - test_vacant$Score)^2)
+  cross_val[m,1]=m;cross_val[m,2]=RMSE_full;cross_val[m,3]=R2_full
+  cross_val[m,4]=RMSE_photo;cross_val[m,5]=R2_photo
+  cross_val[m,6]=RMSE_person;cross_val[m,7]=R2_person
+}
+colMeans(cross_val)
+
+
+######## Plotting with R Party
+
+py2_v<-as.party(tree(vacanttree_person))
+
+source_url("https://raw.githubusercontent.com/martin-borkovec/ggparty/martin/R/add_splitvar_breaks_index_new.R")
+rounded_labels_v <- add_splitvar_breaks_index_new(party_object = py2_v,
+                                                  plot_data = ggparty:::get_plot_data(py2_v), 
+                                                  round_digits = 2)
+ggtree_vacant<-ggparty(py2_v,add_vars = list(AdjustedTarget = function(data, node) round(mean(node$data$AdjustedTarget), 2)))+ 
+  geom_edge()+
+  geom_edge_label(mapping=aes(label=unlist(rounded_labels_v)),size=8,fill="white")+
+  geom_node_label(aes(label=splitvar),ids='inner',size=8)+
+  geom_node_plot(gglist = list(geom_boxplot(outlier.size=0.3,aes(x = '', y = AdjustedTarget,fill=factor(id))),
+                               scale_fill_brewer(palette="BrBG"),
+                               theme_classic(), ylab(""),
+                               theme(panel.background = element_rect(fill="transparent"),
+                                     plot.background = element_rect(fill="transparent",color=NA),
+                                     axis.text.x = element_blank(),
+                                     axis.title.x = element_blank(),
+                                     axis.ticks.x = element_blank(),
+                                     axis.text.y = element_text(size=8)),
+                               theme(legend.position = "none",),
+                               scale_y_continuous(breaks=c(1,3,5))),
+                 shared_legend = FALSE)+
+  geom_node_label(aes(label = AdjustedTarget),
+                  fontface = "bold",
+                  ids = "terminal",
+                  size = 8,
+                  nudge_y = 0.01)+
+  ggtitle("Vacant lot")+
+  theme(plot.title=element_text(hjust=0.5,vjust=0.7,size=30,face="bold"))+
+  annotate("text",label="Mean score",fontface="bold",x=0.01,y=0.40,size=8)+
+  annotate("text",label="Predicted score",x=0.01,y=0.16,angle=90,size=8)
+ggtree_vacant
+
+grob<-frameGrob()
+text<-paste("Score Meaning:","","5 - Magnificent","4 - Beautiful","3 - Neutral","2 - Ugly","1 - Very Ugly",
+            sep="\n")
+fg <- frameGrob()
+tg<-text_grob(text,just="left",hjust=0.5,vjust=0.5,size=50,lineheight=0.5)
+rg <- rectGrob(x = tg$x, y = tg$y, width = 0.8,                 
+               height = stringHeight(tg$label)*2.5 + unit(2,"mm"))
+fg <- packGrob(fg, rg)
+fg <- packGrob(fg, tg)
+
+
+
+icon_nat<-"forest4.png"
+icon_up<-"park2.png"
+icon_vac<-"grass.png"
+
+ggtree_n2<- ggtree_n+draw_image(image = icon_nat, x = 0.4, y =  0.50, scale = 0.20)
+ggtree_u2<- ggtree_u+draw_image(image = icon_up, x = 0.4, y =  0.50, scale = 0.25)
+ggtree_v2<- ggtree_vacant+draw_image(image = icon_vac, x = 0.4, y =  0.50, scale = 0.25)
+
+#######################Figure######################
+tiff(filename="january_reemtree_2024.tiff",res=300,width = 37.5, height= 25,units="cm")
+figure2<-multi_panel_figure(columns=8,rows=2,panel_label_type="none",row_spacing=0.00001,column_spacing=0.00001)
+figure2%<>%
+  fill_panel(ggtree_n,column = 1:4,row=1)%<>%
+  fill_panel(ggtree_u,column = 5:8,row=1)%<>%
+  fill_panel(ggtree_vacant,column = 1:5,row=2)%<>%
+  fill_panel(fg,column = 6:8,row=2)
+figure2
+dev.off()
+
+
+######STOP HERE ######################################################################################
+###################### socio-economic questions ##################################################
+##################################################################################################
+
+
+
+#Question 1
+Q1<- data_2 %>% group_by(Q1) %>% summarise(person,Score,Type) 
+
+a<-ggplot(Q1,aes(x=factor(Q1),
+                 y=Score,fill=factor(Q1)))+
+  geom_boxplot()+
+  labs(x="The beauty of my neighborhood is important",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#efead6","#a6c1a4","#438b81"))+
+  theme(axis.text.y=element_text(size=14),
+        axis.text.x=element_text(size=14, angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_text(size=14),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Disagree","Neutral","Agree","Strongly Agree"))+
+  facet_wrap(~Type)
+a
+
+b<-ggplot(data_r,aes(x=factor(Q1)))+geom_bar(fill=c("#c35f36","#e6a777","#a6c1a4","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  scale_y_continuous(breaks=c(200,400))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Disagree","Neutral","Agree","Strongly Agree"))+
+  labs(x="The beauty of my \nneighborhood is important")
+b
+#Question 2
+
+Q2<- data_2 %>% group_by(Q2) %>% summarise(person,Score,Type) 
+
+c<-ggplot(Q2[!is.na(Q2$Q2),],aes(x=factor(Q2),
+                                 y=Score,fill=factor(Q2)))+
+  geom_boxplot()+
+  labs(x="Greenspaces in my neighborhood are important",y="Score",fill="")+
+  scale_fill_manual(values=c("#efead6","#a6c1a4","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Neutral","Agree","Strongly Agree"))+
+  facet_wrap(~Type)
+c
+
+d<-ggplot(data_r[!is.na(data_r$Q2),],aes(x=factor(Q2)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#a6c1a4","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  scale_y_continuous(breaks=c(200,400))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Disagree","Neutral","Agree","Strongly Agree"))+
+  labs(x="Greenspaces in my \nneighborhood are important")
+d
+#Question 3
+
+Q3<- data_2 %>% group_by(Q3) %>% summarise(person,Score,Type) 
+e<-ggplot(Q3[!is.na(Q3$Q3),],aes(x=factor(Q3),
+                                 y=Score,fill=factor(Q3)))+
+  geom_boxplot()+
+  labs(x="Knowledge of local flora",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#efead6","#a6c1a4","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_text(size=12),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Low","Medium","Good","Excellent"))+
+  facet_wrap(~Type)
+e
+
+f<-ggplot(data_r[!is.na(data_r$Q3),],aes(x=factor(Q3)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#a6c1a4","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  scale_y_continuous(breaks=c(200,400))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(100,200))+
+  scale_x_discrete(labels=c("Low","Medium","Good","Excellent"))+
+  labs(x="Knowledge of local flora")
+f
+#Question 5
+Q5<- data_2 %>% group_by(Q5) %>% summarise(person,Score,Type) 
+g<-ggplot(Q5[!is.na(Q5$Q5),],aes(x=factor(Q5),
+                                 y=Score,fill=factor(Q5)))+
+  geom_boxplot()+
+  labs(x="Countryside Travel frequency per year",y="Score",fill="")+
+  scale_fill_manual(values=c("#c35f36","#e6a777","#efead6","#a6c1a4","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("0","1-4","5-9","10-19",">20"))+
+  facet_wrap(~Type)
+g
+
+h<-ggplot(data_r[!is.na(data_r$Q5),],aes(x=factor(Q5)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#efead6","#a6c1a4","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(75,150))+
+  scale_x_discrete(labels=c("0","1-4","5-9","10-19",">20"))+
+  labs(x="Countryside travel frequency \nper year")
+h
+
+# Question 14
+Q14<- data_2 %>% group_by(Q14) %>% summarise(person,Score,Type) 
+i<-ggplot(Q14[!is.na(Q14$Q14),],aes(x=factor(Q14),
+                                    y=Score,fill=factor(Q14)))+
+  geom_boxplot()+
+  labs(x="Formal education level",y="Score",fill="")+
+  scale_fill_manual(values=c("#efead6","#a6c1a4","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Secondary","College","Graduate","Post-Grad"))+
+  facet_wrap(~Type)
+i  
+
+j<-ggplot(data_r[!is.na(data_r$Q14),],aes(x=factor(Q14)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#778C62","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(75,150))+
+  scale_x_discrete(labels=c("Secondary","College","Graduate","Post-Grad"))+
+  labs(x="Formal education level")
+j
+#Question 15
+Q15<- data_2 %>% group_by(Q15) %>% summarise(person,Score,Type) 
+k<-ggplot(Q15[!is.na(Q15$Q15),],aes(x=factor(Q15),
+                                    y=Score,fill=factor(Q15)))+
+  geom_boxplot()+
+  labs(x="Age",y="Score",fill="")+
+  scale_fill_manual(values=c("#efead6","#a6c1a4","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("16-30","31-45","46-60",">60"))+
+  facet_wrap(~Type)
+k   
+
+l<-ggplot(data_r[!is.na(data_r$Q15),],aes(x=factor(Q15)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#778C62","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(100,200))+
+  scale_x_discrete(labels=c("16-30","31-45","46-60",">60"))+
+  labs(x="Age")
+l
+#Question 16
+Q16<- data_2 %>% group_by(Q16) %>% summarise(person,Score,Type) 
+m<-ggplot(Q16[!is.na(Q16$Q16),],aes(x=factor(Q16),
+                                    y=Score,fill=factor(Q16)))+
+  geom_boxplot()+
+  labs(x="Gender identification",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Male","Female","Non-Binary"))+
+  facet_wrap(~Type)
+m
+
+n<-ggplot(data_r[!is.na(data_r$Q16),],aes(x=factor(Q16)))+
+  geom_bar(fill=c("#c35f36","#778C62","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(150,300))+
+  scale_x_discrete(labels=c("Male","Female","Non-Binary"))+
+  labs(x="Gender identification")
+n
+#Question 17
+Q17<- data_2 %>% group_by(Q17) %>% summarise(person,Score,Type) 
+o<-ggplot(Q17[!is.na(Q17$Q17),],aes(x=factor(Q17),
+                                    y=Score,fill=factor(Q17)))+
+  geom_boxplot()+
+  labs(x="Revenue",y="Score",fill="")+
+  scale_fill_manual(values=c("#efead6","#a6c1a4","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("<40k","40-70k","70-100k",">100k"))+
+  facet_wrap(~Type)
+o
+
+
+p<-ggplot(data_r[!is.na(data_r$Q17),],aes(x=factor(Q17)))+
+  geom_bar(fill=c("#c35f36","#e6a777","#778C62","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(100,200))+
+  scale_x_discrete(labels=c("<40k","40-70k","70-100k",">100k"))+
+  labs(x="Revenue")
+p
+
+#Question 13
+Q7<- data_2 %>% group_by(Q7) %>% summarise(person,Score,Type) 
+q<- ggplot(Q7[!is.na(Q7$Q7),],aes(x=factor(Q7),
+                                  y=Score,fill=factor(Q7)))+
+  geom_boxplot()+
+  labs(x="I am an environmental defender",y="Score",fill="")+
+  scale_fill_manual(values=c("#c35f36","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_text(size=12),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("No","Sort of","Yes"))+
+  facet_wrap(~Type)
+q
+
+r<-ggplot(data_r[!is.na(data_r$Q7),],aes(x=factor(Q7)))+
+  geom_bar(fill=c("#c35f36","#778C62","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(150,300))+
+  scale_x_discrete(labels=c("No","Sort of","Yes"))+
+  labs(x="I am an \nenvironmental defender")
+r
+
+### Question 18
+Q18<- data_2 %>% group_by(Q18) %>% summarise(person,Score,Type) 
+v<- ggplot(Q18[!is.na(Q18$Q18),],aes(x=factor(Q18),
+                                     y=Score,fill=factor(Q18)))+
+  geom_boxplot()+
+  labs(x="I am part of a visible minority",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62","#438b81"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=10,angle=15),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("No","Yes"))+
+  facet_wrap(~Type)
+v
+
+
+x<-ggplot(data_r[!is.na(data_r$Q18),],aes(x=factor(Q18)))+
+  geom_bar(fill=c("#c35f36","#438b81"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title.x=element_text(size=16,lineheight=0.3),
+        axis.title.y=element_text(size=16),
+        axis.text.x=element_text(size=16,angle=90),
+        axis.text.y=element_text(size=16))+
+  labs(y="Count",x="")+
+  scale_y_continuous(breaks=c(200,400))+
+  scale_x_discrete(labels=c("No","Yes"))+
+  labs(x="I am part \nof a visible minority")
+x
+
+
+s<-grid.text(c("      D- Disagree
+    N- Neutral
+  A- Agree
+                 SA- Strongly Agree"),gp=gpar(fontsize=12),
+             x=0.35,y=0.6)
+
+t<-grid.text(c("L- Low
+      M- Medium
+  G- Good
+       E- Excellent"),gp=gpar(fontsize=12),
+             x=0.34,y=0.6)
+
+u<-grid.text(c("      S- Secondary
+ C- College
+    G- Graduate
+               PG- Post-Graduate"),gp=gpar(fontsize=12),
+             x=0.36,y=0.5)
+
+######### Why did you travel question ####
+
+Q6.2<- data_2 %>% group_by(Q6.2) %>% summarise(person,Score,Type) 
+aa<- ggplot(Q6.2[!is.na(Q6.2$Q6.2),],aes(x=factor(Q6.2),
+                                         y=Score,fill=factor(Q6.2)))+
+  geom_boxplot()+
+  labs(x="To see pleasant landscapes",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_text(size=12),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+aa
+
+bb<-ggplot(data_r[!is.na(data_r$Q6.2),],aes(x=factor(Q6.2)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To see pleasant landscapes")
+bb
+
+Q6.3<-data_2 %>% group_by(Q6.3) %>% summarise(person,Score,Type) 
+cc<- ggplot(Q6.3[!is.na(Q6.3$Q6.3),],aes(x=factor(Q6.3),
+                                         y=Score,fill=factor(Q6.3)))+
+  geom_boxplot()+
+  labs(x="To practice sports",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+cc
+
+
+
+dd<-ggplot(data_r[!is.na(data_r$Q6.3),],aes(x=factor(Q6.3)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To practice sports")
+dd
+
+Q6.4<-data_2 %>% group_by(Q6.4) %>% summarise(person,Score,Type) 
+ee<- ggplot(Q6.4[!is.na(Q6.4$Q6.4),],aes(x=factor(Q6.4),
+                                         y=Score,fill=factor(Q6.4)))+
+  geom_boxplot()+
+  labs(x="To hunt or to fish",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+ee
+
+
+ff<-ggplot(data_r[!is.na(data_r$Q6.4),],aes(x=factor(Q6.4)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To hunt or to fish")
+ff
+
+Q6.5<-data_2 %>% group_by(Q6.5) %>% summarise(person,Score,Type) 
+gg<- ggplot(Q6.5[!is.na(Q6.5$Q6.5),],aes(x=factor(Q6.5),
+                                         y=Score,fill=factor(Q6.5)))+
+  geom_boxplot()+
+  labs(x="For fauna observation",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+gg
+
+ggg<- ggplot(Q6.5[!is.na(Q6.5$Q6.5),],aes(x=factor(Q6.5),
+                                          y=Score,fill=factor(Q6.5)))+
+  geom_boxplot()+
+  labs(x="Travelled in the past year for fauna observation",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_text(size=12),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+ggg
+
+
+
+hh<-ggplot(data_r[!is.na(data_r$Q6.5),],aes(x=factor(Q6.5)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="For fauna observation")
+hh
+
+Q6.6<-data_2 %>% group_by(Q6.6) %>% summarise(person,Score,Type) 
+ii<- ggplot(Q6.6[!is.na(Q6.6$Q6.6),],aes(x=factor(Q6.6),
+                                         y=Score,fill=factor(Q6.6)))+
+  geom_boxplot()+
+  labs(x="To stimulate creativity",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+ii
+
+
+jj<-ggplot(data_r[!is.na(data_r$Q6.6),],aes(x=factor(Q6.6)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To stimulate creativity")
+jj
+
+Q6.7<-data_2 %>% group_by(Q6.7) %>% summarise(person,Score,Type) 
+kk<- ggplot(Q6.7[!is.na(Q6.7$Q6.7),],aes(x=factor(Q6.7),
+                                         y=Score,fill=factor(Q6.7)))+
+  geom_boxplot()+
+  labs(x="For economic activities",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+kk
+
+
+ll<-ggplot(data_r[!is.na(data_r$Q6.7),],aes(x=factor(Q6.7)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="For economic activities")
+ll
+
+Q6.8<-data_2 %>% group_by(Q6.8) %>% summarise(person,Score,Type) 
+mm<- ggplot(Q6.8[!is.na(Q6.8$Q6.8),],aes(x=factor(Q6.8),
+                                         y=Score,fill=factor(Q6.8)))+
+  geom_boxplot()+
+  labs(x="For spiritual reasons",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+mm
+
+
+nn<-ggplot(data_r[!is.na(data_r$Q6.8),],aes(x=factor(Q6.8)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="For spiritual reasons")
+nn
+
+Q6.9<-data_2 %>% group_by(Q6.9) %>% summarise(person,Score,Type) 
+oo<- ggplot(Q6.9[!is.na(Q6.9$Q6.9),],aes(x=factor(Q6.9),
+                                         y=Score,fill=factor(Q6.9)))+
+  geom_boxplot()+
+  labs(x="To feel better",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_text(size=12),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+oo
+
+
+pp<-ggplot(data_r[!is.na(data_r$Q6.9),],aes(x=factor(Q6.9)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To feel better")
+
+Q6.10<-data_2 %>% group_by(Q6.10) %>% summarise(person,Score,Type) 
+qq<- ggplot(Q6.10[!is.na(Q6.10$Q6.10),],aes(x=factor(Q6.10),
+                                            y=Score,fill=factor(Q6.10)))+
+  geom_boxplot()+
+  labs(x="For learning opportunities *",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+qq
+
+
+rr<-ggplot(data_r[!is.na(data_r$Q6.10),],aes(x=factor(Q6.10)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="For learning opportunities")
+rr
+
+Q6.11<-data_2 %>% group_by(Q6.11) %>% summarise(person,Score,Type) 
+ss<- ggplot(Q6.11[!is.na(Q6.11$Q6.11),],aes(x=factor(Q6.11),
+                                            y=Score,fill=factor(Q6.11)))+
+  geom_boxplot()+
+  labs(x="To visit acquaintances",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+ss
+
+
+tt<-ggplot(data_r[!is.na(data_r$Q6.11),],aes(x=factor(Q6.11)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To visit acquaintances")
+tt
+
+Q6.12<-data_2 %>% group_by(Q6.12) %>% summarise(person,Score,Type) 
+uu<- ggplot(Q6.12[!is.na(Q6.12$Q6.12),],aes(x=factor(Q6.12),
+                                            y=Score,fill=factor(Q6.12)))+
+  geom_boxplot()+
+  labs(x="To escape the stress of the city",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+uu
+
+
+vv<-ggplot(data_r[!is.na(data_r$Q6.12),],aes(x=factor(Q6.12)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To escape the stress of the city")
+vv
+
+Q6.13<-data_2 %>% group_by(Q6.13) %>% summarise(person,Score,Type) 
+xx<- ggplot(Q6.13[!is.na(Q6.13$Q6.13),],aes(x=factor(Q6.13),
+                                            y=Score,fill=factor(Q6.13)))+
+  geom_boxplot()+
+  labs(x="To consume local products",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+xx
+
+
+zz<-ggplot(data_r[!is.na(data_r$Q6.13),],aes(x=factor(Q6.13)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To consume local products")
+zz
+
+Q6.14<-data_2 %>% group_by(Q6.14) %>% summarise(person,Score,Type) 
+ww<- ggplot(Q6.14[!is.na(Q6.14$Q6.14),],aes(x=factor(Q6.14),
+                                            y=Score,fill=factor(Q6.14)))+
+  geom_boxplot()+
+  labs(x="To visit a cottage",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+ww
+
+
+yy<-ggplot(data_r[!is.na(data_r$Q6.14),],aes(x=factor(Q6.14)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To visit a cottage")
+yy
+
+Q6.15<-data_2 %>% group_by(Q6.15) %>% summarise(person,Score,Type) 
+aaa<- ggplot(Q6.15[!is.na(Q6.15$Q6.15),],aes(x=factor(Q6.15),
+                                             y=Score,fill=factor(Q6.15)))+
+  geom_boxplot()+
+  labs(x="To go home",y="Score",fill="")+
+  scale_fill_manual(values=c("#e6a777","#778C62"))+
+  theme(axis.text.y=element_text(size=10),
+        axis.text.x=element_blank(),
+        axis.title.y=element_text(size=14),
+        axis.title.x=element_text(size=12),
+        legend.title = element_text(size=12),
+        legend.text = element_text(size=18),
+        legend.position = 'none',
+        strip.text = element_blank(),
+        panel.background = element_rect(fill='white'),
+        strip.background = element_rect(colour='white'))+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  facet_wrap(~Type)
+aaa
+
+
+bbb<-ggplot(data_r[!is.na(data_r$Q6.15),],aes(x=factor(Q6.15)))+
+  geom_bar(fill=c("#e6a777","#778C62"))+
+  theme(panel.background = element_rect(fill='white'),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10))+
+  labs(y="Count",x="")+
+  scale_x_discrete(labels=c("Not marked","Marked"))+
+  labs(x="To go home")
+bbb
+
+tiff(filename="JANUARY_Fig2_v4_new_2024.tiff",res=300,width=6.8,height=16,units="cm")
+fig1<-multi_panel_figure(columns = 13, rows = 5, panel_label_type = "none",column_spacing=0.1,
+                         row_spacing = 0.1)
+fig1%<>%
+  fill_panel(b,column =1:6, row =1)%<>%fill_panel(d,column =7:12, row =1)%<>%
+  fill_panel(r,column =1:6, row =2)%<>%fill_panel(f,column =7:12, row =2)%<>%
+  fill_panel(h,column =1:6, row =3)%<>%fill_panel(l,column =7:12, row =3)%<>%
+  fill_panel(n,column =1:6, row =4)%<>%fill_panel(p,column =7:12, row =4)%<>%
+  fill_panel(j,column =1:6, row =5)%<>%fill_panel(x,column =7:12, row =5)
+fig1
+dev.off()
+
+tiff(filename="january_cohort_22_new.tiff",res=100,width=22.5,height=30,units="cm")
+fig1<-multi_panel_figure(columns = 3, rows = 5, panel_label_type = "none",figure_name = "I travelled to the countryside to...")
+fig1%<>%
+  fill_panel(bb,column =1, row =1)%<>%fill_panel(dd,column =2, row =1)%<>%
+  fill_panel(ff,column =3, row =1)%<>%fill_panel(hh,column =1, row =2)%<>%
+  fill_panel(jj,column =2, row =2)%<>%fill_panel(ll,column =3, row =2)%<>%
+  fill_panel(nn,column =1, row =3)%<>%fill_panel(pp,column =2, row =3)%<>%
+  fill_panel(rr,column =3, row =3)%<>%fill_panel(tt,column =1, row =4)%<>%
+  fill_panel(vv,column =2, row =4)%<>%fill_panel(zz,column =3, row =4)%<>%
+  fill_panel(yy,column =1, row =5)%<>%fill_panel(bbb,column =2, row =5)
+fig1
+grid.text("I travelled to the countryside to...",x=0.5,y=0.99,gp=gpar(fontsize=16,fontface="bold"))
+dev.off()
+
+tiff(filename="january_Description_11_new.tif",res=100,width=35, height=25, units="cm")
+figure1<- multi_panel_figure(columns=2,rows=5,panel_label_type="none")
+figure1%<>%
+  fill_panel(a,column = 1, row=1)%<>%fill_panel(c,column=1,row=2)%<>%
+  fill_panel(q,column = 1, row=3)%<>%
+  fill_panel(e,column=1, row=4)%<>%fill_panel(g,column=1,row=5)%<>%
+  fill_panel(i,column=2,row=1)%>%fill_panel(k,column=2,row=2)%<>%
+  fill_panel(m,column=2,row=3)%>%fill_panel(o,column=2,row=4)%>%
+  fill_panel(v,column=2,row=5)
+figure1
+dev.off()
+
+
+tiff(filename="january_Description_22_new.tif",res=100,width=18, height=20, units="cm")
+figure2<- multi_panel_figure(columns=2,rows=6,panel_label_type="none",figure_name = "Reasons for travelling to countryside")
+figure2%<>%
+  fill_panel(aa,column = 1, row=1)%<>%fill_panel(cc,column=1,row=2)%<>%
+  fill_panel(ee,column = 1, row=3)%<>%
+  fill_panel(gg,column=1, row=4)%<>%fill_panel(ii,column=1,row=5)%<>%
+  fill_panel(kk,column=1,row=6)%>%fill_panel(mm,column=2,row=6)%<>%
+  fill_panel(oo,column=2,row=1)%>%fill_panel(qq,column=2,row=2)%>%
+  fill_panel(ss,column=2,row=3)%<>%fill_panel(uu,column=2,row=4)%<>%
+  fill_panel(xx,column=2,row=5)
+figure2
+grid.text("Reasons for travelling to the countryside",x = 0.5, y = 0.99,gp=gpar(fontsize=20,fontface="bold"))
+dev.off()
+
+tiff(filename="january_Fig7_v4_new.tif",res=100,width=35, height=18, units="cm")
+figure1<- multi_panel_figure(columns=2,rows=4,panel_label_type="upper-alpha")
+figure1%<>%
+  fill_panel(q,column =1,row=1)%<>%fill_panel(e,column=2,row=1)%<>%
+  fill_panel(g,column =1,row=2)%<>%fill_panel(ggg,column=2,row=2)%<>%
+  fill_panel(i,column=1,row=3)%<>%fill_panel(k,column=2,row=3)%>%
+  fill_panel(o,column=1,row=4)%<>%fill_panel(v,column=2,row=4)
+figure1
+dev.off()
+
+################################################################################################
+######################################Correlations-RDA#############################################
+##################################################################################################
+################################################################################################
+## Correlations
+#Investigating People
+data_person = as.data.frame(data_r[,2:28])
+
+a<-describe(data_person)
+write.csv(a,'summary_responses_social.csv')
+cor_person<-corr.test(data_person,method="pearson")
+corrplot(corr=cor_person$r,method="number",
+         type="lower", 
+         tl.col="black",
+         sig.level = 0.05, 
+         pch.cex=0.8,
+         is.corr = T,
+         diag=F,
+         tl.cex = 0.8,
+         cl.cex=0.8,
+         number.cex = 0.5,
+         number.digits=1,
+         col="black",
+         cl.pos="n")
+cor_person$r>0.7
+
+#deleting correlated variables Q 4, Q6.1 and Q13 are not variables to be included (read methodology)
+data_r3=select(data_r2,-c("Q4","Q6.1","Q13"))
+#correlation between pairs of variables
+data_cor = data_c[,c("Natural","Vacant.Lot","Urban.Park","Human_Features","Clutter_NoSky",
+                     "Complexity","Color","Chroma","Intensity","Greenness")]
+colnames(data_cor)<-c("Natural","Vacant lot","Urban park","Artificial structures","Tall vegetation",
+                      "Visual complexity",
+                      "Vegetation structural complexity- Color","Vegetation structural complexity- Chroma",
+                      "Vegetation structural complexity- Intensity","Green pixels")
+cor_var = corr.test(data_cor,method="spearman")
+
+corrplot(corr=cor_var$r,p.mat=cor_var$p, tl.pos="ld",
+         type ="lower", insig="blank",sig.level = 0.05, 
+         pch.cex=0.8,method="color", tl.col="black",
+         addCoef.col = "black",title="Spearman Correlation")
+
+jpeg("correlation_pictures2.jpeg",res=300,width=20, height=20, units="cm")
+corrplot(corr=cor_var$r,p.mat=cor_var$p, tl.pos="ld",
+         type ="lower", sig.level = 0.05, 
+         pch.cex=0.8,method="color", tl.col="black")
+dev.off()
+
+### Data community
+data_r3 = na.omit(data_r3)
+com = as.matrix(data_r3[,which(colnames(data_r3) == "P1"):which(colnames(data_r3)=="P45")])
+env = data_r3[,c(c(which(colnames(data_r3)=="Q1"):which(colnames(data_r3)=="Q18")),which(colnames(data_r3)=="no_survey"))]
+env$longitude = data_r3$longitude
+env$latitude = data_r3$latitude
+
+
+data_t <- data_c %>% remove_rownames %>% column_to_rownames(var="Picture")
+data_t = select(data_t,-c("Clutter_Sky","Type","Management","Water",
+                          "Color","Chroma","Ecosystem"))
+
+### RDA not considering traits
+rda_general = rda(com~.,env,na.actio=na.exclude)
+anova.cca(rda_general,step=10000)
+
+### rda CONSIDERING TRAITS
+data_t<- as.matrix(data_t)
+cmw<-functcomp(data_t,com,CWM.type = c("all"))
+env$group = data_r3$Public
+rda2 = rda(cmw~Q1+Q2+Q3+Q5+Q6.2+Q6.3+Q6.4+Q6.5+Q6.6+Q6.7+Q6.8+Q6.9+Q6.10+Q6.11+Q6.12+Q6.13+Q6.14+Q6.15+
+             Q7+Q14+Q15+Q16+Q17+Q18+latitude+longitude+group,env,na.action=na.exclude)
+rda3 = rda(cmw~Q3+Q5+Q6.2+Q6.5+Q6.10+Q7+Q15+Q17+Q18,env,na.action=na.exclude)
+summary(rda2)
+anova.cca(rda2)
+anova.cca(rda2,by="terms")
+vif.cca(rda2)
+#stepwise selection of variables
+# forw.sel <- ordiR2step(rda(cmw~1,data=env,na.action=na.exclude),
+#                        scope = formula(rda2),
+#                        direction = "both",
+#                        R2scope = T,
+#                        pstep = 10000,
+#                        trace = T,na.action=na.exclude)
+# forw.sel$call
+# forw.sel$anova
+# anova.cca(forw.sel,by="margin",step=10000)
+# anova.cca(forw.sel,step=10000)
+# anova.cca(forw.sel,by="axis")
+# RsquareAdj(forw.sel)
+# RsquareAdj(rda2)
+
+
+
+
+ii=summary(rda3)
+sp=as.data.frame(ii$species[,1:2])*2#Depending on the drawing result, the drawing data can be enlarged or #438b81uced to a certain extent, as follows
+st=as.data.frame(ii$sites[,1:2])
+yz=as.data.frame(ii$biplot[,1:2])
+# rownames(yz)<-c("Environmental defender","Age","Travel for fauna observation",
+#                 "Travel frequency","Visible minority","Flora knowledge",
+#                 "Revenue","Education")
+ # rownames(yz)<-c("Environmental defender","Age","Travel for fauna observation",
+ #                 "Travel frequency","Visible minority","Flora knowledge")
+sp=sp[-c(1,3,5),]
+rownames(sp)<-c("Natural remnants","City park","Vacant lot","No Artificial structures",
+                "Artificial structures","Canopy/shrub cover","Visual complexity",
+                "Vegetation structural complexity","Green pixels")
+grp=as.data.frame(data_r3$Public)#Grouping by Square Type
+colnames(grp)="group"
+
+
+
+tiff("Fig6_2024.tiff",res=600,width = 18,height = 18,units = "cm")
+rda_g<-ggplot()+geom_point(data = st,aes(RDA1,RDA2,col=grp$group),size=1)+
+  stat_ellipse(level=0.95,aes(RDA1,RDA2,col=grp$group),data=st)+
+  labs(x=paste("RDA1 (", format(100 *ii$cont[[1]][2,1], digits=2), "%)", sep=""),
+       y=paste("RDA2 (", format(100 *ii$cont[[1]][2,2], digits=2), "%)", sep=""))+
+  scale_color_manual(name="Group",
+                     labels=c("General Public","Laval U. Students and Employees",
+                                           "Specialists"),values=c("#1e81b0","#e28743","#873e23"))+
+  geom_hline(yintercept=0,linetype=3,size=1) + 
+  geom_vline(xintercept=0,linetype=3,size=1) +
+  theme_minimal()+
+  theme(legend.position = c(0.2,0.9),
+        panel.grid=element_blank(),axis.text = element_text(size=50),
+        axis.title.x = element_text(size=50),
+        axis.title.y = element_text(size=50),
+        legend.text = element_text(size=50),
+        legend.title = element_text(size=50,face="bold"),
+        legend.spacing.x = unit(0.1,"cm"),
+        legend.title.align = 0.05,
+        legend.spacing.y = unit(0.1,"cm"))+
+  #geom_point(data = sp,aes(RDA1,RDA2),size=2)+
+  geom_segment(data = yz,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow = arrow(angle=33,length = unit(0.2,"cm"),
+                             type = "closed"),
+               #position = position_attractsegment(start_shave = 0.1, end_shave = 0.1),
+               linetype=1, size=0.4,colour = "#c35d37")+
+  geom_segment(data = sp,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow = arrow(angle=33,length = unit(0.2,"cm"),
+                             type = "closed"),
+               #position = position_attractsegment(start_shave = 0.1, end_shave = 0.1),
+               linetype=1, size=0.4)+
+  geom_label_repel(data = yz,aes(RDA1,RDA2,label=row.names(yz)),
+                   cex=18,color="#c35d37",label.size=NA,label.padding = 0.2,force=1)+
+  geom_label_repel(data = sp,aes(RDA1,RDA2,label=row.names(sp)),cex=18,
+                   label.size=NA,label.padding=0.2,force=2)+
+  ylim(-0.75,0.75)
+  rda_g    
+dev.off()
+
+
+
+#####Spatial
+
+data_map<- data_2 %>% filter(latitude > 46.56,latitude < 47.32,longitude > -71.80, longitude < -70.68)
+#write.csv(data_map,file="data_map.csv")
+sum<-data_map %>% group_by(Q19,Type) %>% summarize(n(),Latitude=max(latitude),Longitude=max(longitude),`Mean score`=mean(Score))
+#write.csv(sum,file="sum_map.csv")
+n_sum = sum %>% filter(Type == "Natural")
+u_sum = sum %>% filter(Type == "Urban Park")
+v_sum = sum %>% filter(Type == "Vacant Lot")
+
+## Preparing data for I de Moran test
+dist<-as.matrix(dist(cbind(n_sum$Longitude,n_sum$Latitude)))
+min(dist)
+
+#natural
+nb<-knn2nb(knearneigh(cbind(n_sum$Longitude,n_sum$Latitude)))
+W<-dnearneigh(cbind(n_sum$Longitude,n_sum$Latitude),0,20,longlat=T)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran(n_sum$`Mean score`,lw,length(W), Szero(lw))
+moran.test(n_sum$`Mean score`,lw,alternative="greater")
+lmoran<-cbind(n_sum,localmoran(n_sum$`Mean score`,lw, adjust.x=TRUE))
+lmoranraw<-localmoran(n_sum$`Mean score`,lw, adjust.x=TRUE)
+lmoran;lmoranraw
+# centers the local Moran's around the mean
+#### urban
+nb<-knn2nb(knearneigh(cbind(u_sum$Longitude,u_sum$Latitude)))
+W<-dnearneigh(cbind(u_sum$Longitude,u_sum$Latitude),0,20,longlat=T)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran(u_sum$`Mean score`,lw,length(W), Szero(lw))
+moran.test(u_sum$`Mean score`,lw,alternative="greater")
+lmoran<-cbind(u_sum,localmoran(u_sum$`Mean score`,lw, adjust.x=TRUE))
+lmoranraw<-localmoran(u_sum$`Mean score`,lw, adjust.x=TRUE)
+lmoranraw;lmoran
+
+#### vacant 
+nb<-knn2nb(knearneigh(cbind(v_sum$Longitude,v_sum$Latitude)))
+W<-dnearneigh(cbind(v_sum$Longitude,v_sum$Latitude),0,20, longlat=T)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran(v_sum$`Mean score`,lw,length(W), Szero(lw))
+moran.test(v_sum$`Mean score`,lw,alternative="greater")
+lmoran<-cbind(v_sum,localmoran(v_sum$`Mean score`,lw, adjust.x=TRUE))
+lmoranraw<-localmoran(v_sum$`Mean score`,lw, adjust.x=TRUE)
+lmoranraw;lmoran
+
+ggplot(lmoran,aes(y=Latitude,x=Longitude,shape=`Pr(z != E(Ii))`<= 0.05,colour=Ii))+geom_point()
+
+#### graph
+
+ggplot()+geom_density_ridges(data=data_map,aes(y=Score,x=latitude,group=Score))+facet_wrap(~Type)+
+  geom_point(data=sum,aes(y=`Mean score`,x=Latitude))
+
+ggplot()+geom_density_ridges(data=data_map,aes(y=Score,x=longitude,group=Score))+facet_wrap(~Type)+
+  geom_point(data=sum,aes(y=`Mean score`,x=Longitude))
+
+summary(glm(data=v_sum,`Mean score` ~ Latitude + Longitude))
+
+## Preparing data for I de Moran test
+
+library(sure)
+#Residuals analysis
+global_dp<-clm(as.factor(`Mean score`) ~ Type ,data=sum,Hess=TRUE,link="logit")
+res_global_dp<-resids(global_dp)
+
+## Preparing data for I de Moran test
+data_VL_coords <-sum;coordinates(data_VL_coords) <- ~ Longitude + Latitude
+IDs <- row.names(as(sum, "data.frame"))
+# # #Queen neighbors , 10 was an arbitraty value decided after looking at neighbors matrix for diff values
+dist<-coordinates(data_VL_coords)
+W<-dnearneigh(coordinates(data_VL_coords),0,0.2)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran.mc(res_global_dp,lw,10000,zero.policy=T)
+mc_res
+
+# # #plot residuals
+sum$residuals = res_global_dp
+ggplot(sum, aes(Longitude, Latitude, colour = residuals)) +
+  scale_colour_gradientn(colours = terrain.colors(10)) +
+  geom_point(size = 3)
+
+#### density versus score versus spatial
+data_d=read.xlsx("./fsa_density.xlsx", sheet="Feuil1",rowNames = F, colNames = T)
+head(data_d)
+#natural
+model<-glm(Natural~Density,data=data_d)
+summary(model)
+res_model<-residuals.glm(model)
+coordinates(data_d) <- ~ longitude + latitude
+# # #Queen neighbors , 10 was an arbitraty value decided after looking at neighbors matrix for diff values
+dist<-coordinates(data_d)
+W<-dnearneigh(coordinates(data_d),0,0.2)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran.mc(res_model,lw,10000,zero.policy=T)
+mc_res
+
+# # #plot residuals
+data_d$residuals = res_model
+ggplot(sum, aes(Longitude, Latitude, colour = residuals)) +
+  scale_colour_gradientn(colours = terrain.colors(10)) +
+  geom_point(size = 3)
+#Park
+model<-glm(Urban_Park~Density,data=data_d)
+summary(model)
+res_model<-residuals.glm(model)
+# # #Queen neighbors , 10 was an arbitraty value decided after looking at neighbors matrix for diff values
+dist<-coordinates(data_d)
+W<-dnearneigh(coordinates(data_d),0,0.2)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran.mc(res_model,lw,10000,zero.policy=T)
+mc_res
+
+# # #plot residuals
+data_d$residuals = res_model
+ggplot(sum, aes(Longitude, Latitude, colour = residuals)) +
+  scale_colour_gradientn(colours = terrain.colors(10)) +
+  geom_point(size = 3)
+
+#vacant
+model<-glm(Vacant_Lot~Density,data=data_d)
+summary(model)
+res_model<-residuals.glm(model)
+# # #Queen neighbors , 10 was an arbitraty value decided after looking at neighbors matrix for diff values
+dist<-coordinates(data_d)
+W<-dnearneigh(coordinates(data_d),0,0.2)
+lw <- nb2listw(W,zero.policy=TRUE)
+summary(W)
+mc_res<-moran.mc(res_model,lw,10000,zero.policy=T)
+mc_res
+
+# # #plot residuals
+data_d$residuals = res_model
+ggplot(sum, aes(Longitude, Latitude, colour = residuals)) +
+  scale_colour_gradientn(colours = terrain.colors(10)) +
+  geom_point(size = 3)
+
+
